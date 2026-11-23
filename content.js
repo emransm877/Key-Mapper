@@ -3,9 +3,12 @@
 // 2) Reports busy/idle + current item to background.js, and on its command switches
 //    to the caller's item and sets the call status (e.g. AgentInCall).
 (() => {
-  const SA = /superannotate\.com/i;
+  const isSA = (url) => {
+    try { const host = new URL(url).hostname; return host === 'superannotate.com' || host.endsWith('.superannotate.com'); }
+    catch (_) { return false; }
+  };
   const anc = Array.from(location.ancestorOrigins || []);
-  if (!SA.test(location.href) && !anc.some((o) => SA.test(o))) return;
+  if (!isSA(location.href) && !anc.some(isSA)) return;
 
   const TAG = "[Key Mapper]";
   const MSG = "key-mapper-enter-click";
@@ -28,6 +31,8 @@
   const autoClicked = new WeakMap();
   let autoTimer = null;
   let lastClickAt = 0; // counts as activity
+  // refresh() runs during startup, so this guard must exist before that call.
+  let switching = false;
 
   const send = (m) => { try { chrome.runtime.sendMessage(m).catch(() => {}); } catch (_) {} };
 
@@ -143,7 +148,8 @@
   function isTypingField(el) {
     while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
     if (!el) return false;
-    return el.isContentEditable || el.tagName === "TEXTAREA";
+    return el.isContentEditable || el.tagName === "TEXTAREA" ||
+      (el.tagName === "INPUT" && !/^(button|submit|checkbox|radio|range|color|file|hidden|reset|image)$/i.test(el.type));
   }
 
   window.addEventListener(
@@ -197,7 +203,6 @@
   const IS_ITEM = /^[a-z0-9]+(?:_[a-z0-9]+)*__[a-z0-9_]+$/i;
   const BUSY_TEXT = /Sending the agent recording|Collecting the agent|Conversation in progress|Uploading/i;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  let switching = false;
 
   // Current item name in this frame, e.g. "travel_hospitality__tideglass_passage".
   function detectItem() {

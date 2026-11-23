@@ -10,11 +10,24 @@ $stdout = [Console]::OpenStandardOutput()
 
 function Read-Message {
   $lenBytes = New-Object byte[] 4
-  if ($stdin.Read($lenBytes, 0, 4) -lt 4) { return $null }
+  $got = 0
+  while ($got -lt 4) {
+    $read = $stdin.Read($lenBytes, $got, 4 - $got)
+    if ($read -eq 0) {
+      if ($got -eq 0) { return $null }
+      throw 'Truncated native message header'
+    }
+    $got += $read
+  }
   $len = [BitConverter]::ToInt32($lenBytes, 0)
+  if ($len -le 0 -or $len -gt 1048576) { throw 'Invalid native message length' }
   $buf = New-Object byte[] $len
   $got = 0
-  while ($got -lt $len) { $got += $stdin.Read($buf, $got, $len - $got) }
+  while ($got -lt $len) {
+    $read = $stdin.Read($buf, $got, $len - $got)
+    if ($read -eq 0) { throw 'Truncated native message body' }
+    $got += $read
+  }
   return [Text.Encoding]::UTF8.GetString($buf) | ConvertFrom-Json
 }
 

@@ -16,6 +16,9 @@ const REPO_MANIFEST = `https://raw.githubusercontent.com/${REPO}/main/manifest.j
 const HOST = 'com.keymapper.updater';
 const STEP_TIMEOUT_MS = 90000;
 const COOLDOWN_MS = 5 * 60000;
+const CALLER_MAX_AGE_MS = 2 * 60000;
+// Record busy heartbeats immediately, even while another frame's ntfy request awaits.
+const busyReceived = new Map();
 
 const getCfg = () => chrome.storage.sync.get(DEFAULTS);
 const company = (item) => (item || '').split('__')[0];
@@ -28,7 +31,9 @@ async function getState(tabId) {
 const setState = (tabId, s) => chrome.storage.session.set({ ['tab' + tabId]: s });
 
 async function callerItem(topic) {
-  const r = await fetch(`https://ntfy.sh/${encodeURIComponent(topic)}/json?poll=1&since=6h`, { cache: 'no-store' });
+  const r = await fetch(`https://ntfy.sh/${encodeURIComponent(topic)}/json?poll=1&since=2m`, {
+    cache: 'no-store', signal: AbortSignal.timeout(10000)
+  });
   if (!r.ok) throw new Error('ntfy ' + r.status);
   const lines = (await r.text()).trim().split('\n').filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -36,7 +41,11 @@ async function callerItem(topic) {
       const ev = JSON.parse(lines[i]);
       if (ev.event !== 'message') continue;
       const msg = JSON.parse(ev.message);
-      if (msg.item) return msg.item;
+      // ntfy timestamps are independent of the caller computer's clock.
+      const age = Date.now() - Number(ev.time) * 1000;
+      if (msg.v === 1 && typeof msg.item === 'string' &&
+          /^[a-z0-9]+(?:_[a-z0-9]+)*__[a-z0-9_]+$/i.test(msg.item) &&
+          Number.isFinite(age) && age >= -10000 && age <= CALLER_MAX_AGE_MS) return msg.item;
     } catch (_) { /* not ours */ }
   }
   return null;
@@ -49,7 +58,8 @@ async function onTick(tabId, m) {
   const cfg = await getCfg();
   const s = await getState(tabId);
   const now = Date.now();
-  if (m.busy) s.lastBusy = now;
+  s.lastBusy = Math.max(s.lastBusy, busyReceived.get(tabId) || 0);
+  if (m.busy) { s.lastBusy = now; s.pending = null; }
   if (m.item) s.item = m.item;
   if (m.status) s.status = m.status;
 
@@ -73,6 +83,8 @@ async function onTick(tabId, m) {
     let target = null;
     try { target = await callerItem(cfg.topic); } catch (e) { console.warn('[Key Mapper]', e); }
     const s2 = await getState(tabId);
+    s2.lastBusy = Math.max(s2.lastBusy, busyReceived.get(tabId) || 0);
+    if (Date.now() - s2.lastBusy <= idleMs) return setState(tabId, s2);
     if (target && target !== s2.item && (cfg.matchBy !== 'company' || company(target) !== company(s2.item))) {
       s2.pending = { target, stage: 'item', at: Date.now(), sentAt: Date.now() };
       await setState(tabId, s2);
@@ -98,6 +110,7 @@ const serial = (fn) => { queue = queue.then(fn, fn).catch((e) => console.warn('[
 
 chrome.runtime.onMessage.addListener((m, sender, sendResponse) => {
   const tabId = sender.tab && sender.tab.id;
+  if (m.type === 'km-tick' && m.busy && tabId != null) busyReceived.set(tabId, Date.now());
   if (m.type === 'km-tick' && tabId != null) serial(() => onTick(tabId, m));
   else if (m.type === 'km-progress' && tabId != null) serial(() => onProgress(tabId, m));
   else if (m.type === 'km-toast' && tabId != null) toast(tabId, m.text, m.color);
@@ -127,7 +140,10 @@ chrome.runtime.onMessage.addListener((m, sender, sendResponse) => {
     return true;
   }
 });
-chrome.tabs.onRemoved.addListener((tabId) => chrome.storage.session.remove('tab' + tabId));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  busyReceived.delete(tabId);
+  chrome.storage.session.remove('tab' + tabId);
+});
 
 // ---------------- update notice ----------------
 const newer = (a, b) => {
