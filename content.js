@@ -208,7 +208,28 @@
 
   // Read the selected editor control, not an embedded call's scenario title or
   // our own toast text. Its task role/ID is authoritative for switch completion.
+  function projectItemSelects() {
+    return Array.from(document.querySelectorAll('sn-select[data-qa-id="project-items-select"]'))
+      .filter(el => el.tagName === 'SN-SELECT' && el.getAttribute('data-qa-id') === 'project-items-select' && isVisible(el));
+  }
   function editorSelection() {
+    // The site's project selector contains placeholder/tooltip text alongside
+    // the selected value. Read its dedicated value leaf, never that aggregate.
+    const projectSelects = projectItemSelects();
+    if (projectSelects.length) {
+      const selected = [];
+      for (const select of projectSelects) {
+        for (const value of select.querySelectorAll('.sn-value .project-item-name')) {
+          if (!isVisible(value)) continue;
+          const item = (value.textContent || '').replace(/\s+/g, ' ').trim();
+          if (!parseItem(item)) continue;
+          const trigger = select.querySelector('[role="combobox"]') || select.querySelector('.sn-select-container');
+          if (trigger && isVisible(trigger)) selected.push({ item, trigger });
+        }
+      }
+      const unique = [...new Set(selected.map(candidate => candidate.item))];
+      return unique.length === 1 ? selected.find(candidate => candidate.item === unique[0]) : null;
+    }
     const candidates = [];
     for (const el of walk(document)) {
       if (!isVisible(el)) continue;
@@ -395,12 +416,14 @@
       const trig = findItemTrigger(taught, myItem);
       if (!trig) return; // not in this frame
       toast("caller is on " + target + " - switching item…", "#0b5cad");
-      const before = new Set(Array.from(document.querySelectorAll("input")));
+      const searchRoot = projectItemSelects().find(select => select.contains(trig)) || document;
+      const before = new Set(Array.from(searchRoot.querySelectorAll("input")));
       realClick(trig);
       const search = await waitFor(() => {
-        const inputs = Array.from(document.querySelectorAll("input")).filter((i) => isVisible(i) && !/^(checkbox|radio|hidden)$/i.test(i.type));
+        const inputs = Array.from(searchRoot.querySelectorAll("input")).filter((i) => isVisible(i) && !/^(checkbox|radio|hidden)$/i.test(i.type));
         return inputs.find((i) => /search|item/i.test(i.placeholder || "")) || inputs.find((i) => !before.has(i)) ||
-               (document.activeElement && document.activeElement.tagName === "INPUT" ? document.activeElement : null);
+               (document.activeElement && inputs.includes(document.activeElement) ? document.activeElement : null) ||
+               (searchRoot !== document && inputs.length === 1 ? inputs[0] : null);
       }, 4000, safe);
       if (!safe()) return;
       const identity = parseItem(target);
@@ -409,7 +432,27 @@
       let resolved = { item: null, ambiguous: false };
       const opt = await waitFor(() => {
         const options = new Map();
-        for (const el of walk(document)) {
+        const selects = projectItemSelects();
+        if (selects.length) {
+          for (const select of selects) {
+            for (const option of select.querySelectorAll('select-dropdown-panel[role="listbox"] [role="option"]')) {
+              if (!isVisible(option) || option.disabled || option.getAttribute('aria-disabled') === 'true') continue;
+              const names = [];
+              let invalid = false;
+              for (const container of option.querySelectorAll('.project-item-container')) {
+                for (const value of container.querySelectorAll('.project-item-name')) {
+                  const item = (value.textContent || '').replace(/\s+/g, ' ').trim();
+                  if (!parseItem(item)) { invalid = true; continue; }
+                  const qa = container.getAttribute('data-qa-id');
+                  if (qa && qa !== 'project-item-option-' + item) { invalid = true; continue; }
+                  names.push(item);
+                }
+              }
+              const unique = [...new Set(names)];
+              if (!invalid && unique.length === 1) options.set(unique[0], option);
+            }
+          }
+        } else for (const el of walk(document)) {
           if (el === trig || !isVisible(el)) continue;
           const role = el.getAttribute('role');
           const option = role === 'option' || role === 'menuitem' ? el :

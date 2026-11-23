@@ -30,6 +30,8 @@ Ship an update: change the code, **raise `version` in `manifest.json`**, and pus
 
 ## Follow-caller freshness and checks
 
+Version 2.0.5 reads the live site's dedicated selected-item and option-name fields. Placeholder, status-icon and tooltip text are not treated as part of the item name. Company following remains the default described below.
+
 Version 2.0.4 follows **the company**, not the customer's numbered task. A company is the full key before the role/task suffix (for example, `demo_industry__company_a`); sharing the broad `demo_industry` prefix does not mean two tasks belong to the same company. In company mode, any available assigned agent task for that company is suitable, and an agent already in that company stays on their current item even when the customer changes task numbers. Fresh settings default to company mode; existing explicit mode settings are preserved, so select **the company is different** if needed.
 
 The optional **exact task** mode still requires matching role/task IDs: `_customer_pc05` matches `_agent_pc05`, not another numbered variant. The extension cannot grant access to or assign an unavailable company/task. Switch completion requires the actual editor selection to change. Embedded call headings cannot overwrite a fresh selected editor item, and call activity cancels an item/status switch that is still waiting for a dropdown.

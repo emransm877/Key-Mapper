@@ -19,24 +19,52 @@ function pageFixture(labels, changesSelection = true, settings = {}) {
     scrollIntoView() {}, focus() {}, remove() {},
     dispatchEvent(event) { if (event.type === 'click') this.onclick?.(); }
   });
-  const trigger = element(selected, settings.searchInputOnly ? 'button' : 'combobox');
+  const trigger = element(settings.realSnSelect ? '' : selected, settings.searchInputOnly ? 'button' : 'combobox');
+  const selectedName = element(selected);
+  selectedName.className = 'project-item-name';
+  const projectSelect = element();
+  projectSelect.tagName = 'SN-SELECT';
+  projectSelect.getAttribute = name => name === 'data-qa-id' ? 'project-items-select' : '';
+  Object.defineProperty(projectSelect, 'textContent', { get: () => 'Select an item' + selectedName.textContent + 'demo__...' });
+  projectSelect.querySelectorAll = selector => {
+    if (selector === '.sn-value .project-item-name') return [selectedName];
+    if (selector === 'input') return opened ? [input] : [];
+    if (selector === 'select-dropdown-panel[role="listbox"] [role="option"]') {
+      return opened && !settings.delayedOptions ? options.filter(option => option.textContent.includes(input.value)) : [];
+    }
+    return [];
+  };
+  projectSelect.contains = other => other === projectSelect || other === trigger || other === input || other === selectedName;
+  projectSelect.querySelector = () => trigger;
+  trigger.parentElement = settings.realSnSelect ? projectSelect : null;
   trigger.onclick = () => { opened = !opened; openCount++; };
   class Input {
     constructor() { Object.assign(this, element()); this.tagName = 'INPUT'; this.type = 'text'; this.placeholder = 'Search item'; this._value = ''; }
     get value() { return this._value; } set value(value) { this._value = value; }
   }
   const input = new Input();
+  const unrelatedInput = new Input();
+  unrelatedInput.placeholder = 'Search unrelated records';
   if (settings.searchInputOnly) input.getAttribute = name => name === 'role' ? 'combobox' : '';
   const options = labels.map(label => {
     const option = element(label, 'option');
     option.closest = () => option;
-    option.onclick = () => { clicked.push(label); if (changesSelection) { selected = label; trigger.textContent = label; } opened = false; };
+    if (settings.realSnSelect) {
+      const name = element(label);
+      name.className = 'project-item-name';
+      const container = element('Status' + label + 'Information');
+      container.getAttribute = key => key === 'data-qa-id' ? 'project-item-option-' + (settings.optionQaMismatch ? 'demo__different_agent_pc99' : label) : '';
+      container.querySelectorAll = selector => selector === '.project-item-name' && !settings.missingOptionLeaf ? [name] : [];
+      option.querySelectorAll = selector => selector === '.project-item-container' ? [container] : [];
+      option.textContent = 'Status' + label + 'Informationdemo__...';
+    }
+    option.onclick = () => { clicked.push(label); if (changesSelection) { selected = label; selectedName.textContent = label; if (!settings.realSnSelect) trigger.textContent = label; } opened = false; };
     return option;
   });
-  const all = () => [trigger, ...(opened ? [input, ...(settings.delayedOptions ? [] : options.filter(option => option.textContent.includes(input.value)))] : [])];
+  const all = () => [...(settings.realSnSelect ? [projectSelect, selectedName] : []), ...(settings.unrelatedSearch ? [unrelatedInput] : []), trigger, ...(opened ? [input, ...(settings.delayedOptions ? [] : options.filter(option => option.textContent.includes(input.value)))] : [])];
   const doc = {
     documentElement: { appendChild() {} }, body: { get innerText() { return selected; } },
-    querySelectorAll: selector => selector === 'input' ? (opened ? [input] : []) : all(),
+    querySelectorAll: selector => selector === 'sn-select[data-qa-id="project-items-select"]' ? (settings.realSnSelect ? [projectSelect] : []) : selector === 'input' ? [...(settings.unrelatedSearch ? [unrelatedInput] : []), ...(opened ? [input] : [])] : all(),
     addEventListener() {}, createElement: () => element(), activeElement: null
   };
   const window = { frames: [], addEventListener() {} }; window.top = window;
@@ -56,8 +84,53 @@ function pageFixture(labels, changesSelection = true, settings = {}) {
   });
   vm.runInContext(source('item-identity.js'), ctx);
   vm.runInContext(source('content.js').replace('  tick();', '  globalThis.followFixture = { switchItem, tick };\n  tick();'), ctx);
-  return { ctx, messages, clicked, selected: () => selected, opens: () => openCount, switchTo: (item, mode) => ctx.followFixture.switchItem(item, mode) };
+  return { ctx, messages, clicked, selected: () => selected, opens: () => openCount, searchValues: () => ({ actual: input.value, unrelated: unrelatedInput.value }), switchTo: (item, mode) => ctx.followFixture.switchItem(item, mode) };
 }
+
+test('real project selector reads its dedicated value despite placeholder and duplicated truncated text', async () => {
+  const f = pageFixture(['demo__scenario_agent_pc05'], true, { realSnSelect: true });
+  const heartbeat = f.messages.filter(message => message.type === 'km-tick').at(-1);
+  assert.equal(heartbeat.item, 'demo__previous_agent_tp01');
+  assert.equal(heartbeat.itemAuthority, 'editor');
+  await f.switchTo('demo__scenario_customer_pc03', 'company');
+  assert.deepEqual(f.clicked, ['demo__scenario_agent_pc05']);
+  assert.equal(f.messages.at(-1).stage, 'item-done');
+  assert.equal(f.messages.at(-1).item, 'demo__scenario_agent_pc05');
+});
+
+test('real project selector keeps its selected display when search input contains the target company', async () => {
+  const f = pageFixture(['demo__scenario_agent_pc05'], true, {
+    realSnSelect: true, searchInputOnly: true, delayedOptions: true, cancelOnPoll: true,
+    onPoll: ctx => ctx.followFixture.tick()
+  });
+  await f.switchTo('demo__scenario_customer_pc03', 'company');
+  const heartbeat = f.messages.filter(message => message.type === 'km-tick').at(-1);
+  assert.equal(heartbeat.item, 'demo__previous_agent_tp01');
+  assert.equal(heartbeat.itemAuthority, 'editor');
+  assert.equal(f.messages.some(message => message.stage === 'item-done'), false);
+});
+
+test('real project dropdown reads option display leaves and types only in its own search input', async () => {
+  const f = pageFixture(['demo__scenario_agent_pc05'], true, { realSnSelect: true, unrelatedSearch: true });
+  await f.switchTo('demo__scenario_customer_pc03', 'company');
+  assert.deepEqual(f.clicked, ['demo__scenario_agent_pc05']);
+  assert.deepEqual(f.searchValues(), { actual: 'demo__scenario', unrelated: '' });
+  assert.equal(f.messages.at(-1).selected, true);
+});
+
+test('real project option with conflicting item identity is never clicked', async () => {
+  const f = pageFixture(['demo__scenario_agent_pc05'], true, { realSnSelect: true, optionQaMismatch: true });
+  await f.switchTo('demo__scenario_customer_pc03', 'company');
+  assert.deepEqual(f.clicked, []);
+  assert.equal(f.messages.at(-1).stage, 'item-fail');
+});
+
+test('real project option without the dedicated item leaf does not fall back to aggregate text', async () => {
+  const f = pageFixture(['demo__scenario_agent_pc05'], true, { realSnSelect: true, missingOptionLeaf: true });
+  await f.switchTo('demo__scenario_customer_pc03', 'company');
+  assert.deepEqual(f.clicked, []);
+  assert.equal(f.messages.at(-1).stage, 'item-fail');
+});
 
 test('company mode accepts an available agent variant when the exact caller ID is missing', async () => {
   const f = pageFixture(['demo__scenario_customer_pc03', 'demo__scenario_agent_pc05', 'demo__scenario_agent_pc07'], true, { initialSelected: 'other__old_agent_ab01' });
