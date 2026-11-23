@@ -1,6 +1,7 @@
-const DEFAULTS = { topic: '', idleMinutes: '3', autoSwitch: true, matchBy: 'item', wantStatus: 'AgentInCall' };
+const DEFAULTS = { topic: '', idleMinutes: '1', autoSwitch: true, matchBy: 'company', wantStatus: 'AgentInCall' };
 const $ = (id) => document.getElementById(id);
 const out = (t) => { $('out').textContent = t; };
+const companyName = item => (globalThis.KeyMapperItems.parse(item) || {}).key || item;
 const activeTab = async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
 
 $('ver').textContent = 'v' + chrome.runtime.getManifest().version;
@@ -11,6 +12,9 @@ chrome.storage.sync.get(DEFAULTS).then((cfg) => {
     if (el.type === 'checkbox') el.checked = !!cfg[k]; else el.value = cfg[k];
     el.addEventListener('change', () => chrome.storage.sync.set({ [k]: el.type === 'checkbox' ? el.checked : el.value.trim() }));
   }
+  const showMode = () => { $('now').textContent = $('matchBy').value === 'company' ? "Switch to caller's company now" : "Switch to caller's item now"; };
+  $('matchBy').addEventListener('change', showMode);
+  showMode();
 });
 
 chrome.storage.local.get({ latest: null }).then(({ latest }) => {
@@ -44,7 +48,7 @@ $('teachStatus').onclick = () => teach('status');
 $('now').onclick = async () => {
   const tab = await activeTab();
   chrome.runtime.sendMessage({ type: 'km-switch-now', tabId: tab.id }, (r) => {
-    out(r && r.target ? 'Switching to ' + r.target + '…' : 'Error: ' + ((r && r.error) || 'unknown'));
+    out(r && r.target ? (r.matchBy === 'company' ? 'Looking for an assigned agent item in ' + companyName(r.target) + '…' : 'Looking for the exact agent task for ' + r.target + '…') : 'Error: ' + ((r && r.error) || 'unknown'));
   });
 };
 
@@ -54,6 +58,7 @@ $('now').onclick = async () => {
   chrome.runtime.sendMessage({ type: 'km-state', tabId: tab.id }, (s) => {
     if (!s || !s.item) return out('Waiting for the work page. Refresh your SuperAnnotate work page after updating, then reopen this popup.');
     const idle = Math.round((Date.now() - s.lastBusy) / 1000);
-    out(`This tab: ${s.item}\nStatus: ${s.status || '?'}\nIdle: ${idle}s${s.pending ? '\nSwitching to ' + s.pending.target + ' (' + s.pending.stage + ')' : ''}`);
+    const pending = s.pending ? (s.pending.matchBy === 'company' ? '\nPending company: ' + companyName(s.pending.target) : '\nPending exact task: ' + s.pending.target) + ' (' + s.pending.stage + ')' : '';
+    out(`This company: ${companyName(s.item)}\nThis tab: ${s.item}\nStatus: ${s.status || '?'}\nIdle: ${idle}s${pending}`);
   });
 })();

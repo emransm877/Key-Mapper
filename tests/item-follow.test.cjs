@@ -6,7 +6,7 @@ const path = require('node:path');
 const source = name => fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
 
 function pageFixture(labels, changesSelection = true, settings = {}) {
-  let now = Date.now(), opened = false, selected = 'demo__previous_agent_tp01';
+  let now = Date.now(), opened = false, selected = settings.initialSelected || 'demo__previous_agent_tp01';
   let runtimeListener, openCount = 0, canceled = false;
   const messages = [], clicked = [];
   class E { constructor(type, options) { this.type = type; Object.assign(this, options); } }
@@ -56,8 +56,37 @@ function pageFixture(labels, changesSelection = true, settings = {}) {
   });
   vm.runInContext(source('item-identity.js'), ctx);
   vm.runInContext(source('content.js').replace('  tick();', '  globalThis.followFixture = { switchItem, tick };\n  tick();'), ctx);
-  return { ctx, messages, clicked, selected: () => selected, opens: () => openCount, switchTo: item => ctx.followFixture.switchItem(item) };
+  return { ctx, messages, clicked, selected: () => selected, opens: () => openCount, switchTo: (item, mode) => ctx.followFixture.switchItem(item, mode) };
 }
+
+test('company mode accepts an available agent variant when the exact caller ID is missing', async () => {
+  const f = pageFixture(['demo__scenario_customer_pc03', 'demo__scenario_agent_pc05', 'demo__scenario_agent_pc07'], true, { initialSelected: 'other__old_agent_ab01' });
+  await f.switchTo('demo__scenario_customer_pc03', 'company');
+  assert.deepEqual(f.clicked, ['demo__scenario_agent_pc05']);
+  assert.equal(f.messages.at(-1).stage, 'item-done');
+});
+
+test('company mode rejects a different named company in the same category and never chooses a customer item', async () => {
+  const f = pageFixture(['other__scenario_agent_pc03', 'demo__scenario_customer_pc03', 'demo__different_company_agent_ab05'], true, { initialSelected: 'other__old_agent_ab01' });
+  await f.switchTo('demo__scenario_customer_pc03', 'company');
+  assert.deepEqual(f.clicked, []);
+  assert.equal(f.messages.at(-1).stage, 'item-fail');
+});
+
+test('company mode stays on the current agent item when that company already matches', async () => {
+  const f = pageFixture(['demo__scenario_agent_pc05'], true, { initialSelected: 'demo__scenario_agent_pc07' });
+  await f.switchTo('demo__scenario_customer_pc03', 'company');
+  assert.equal(f.opens(), 0);
+  assert.deepEqual(f.clicked, []);
+  assert.equal(f.messages.at(-1).selected, true);
+});
+
+test('company mode refuses an available item from a different company', async () => {
+  const f = pageFixture(['other__scenario_agent_pc03'], true, { initialSelected: 'other__old_agent_ab01' });
+  await f.switchTo('demo__scenario_customer_pc03', 'company');
+  assert.deepEqual(f.clicked, []);
+  assert.equal(f.messages.at(-1).stage, 'item-fail');
+});
 
 test('customer task selects its unique agent counterpart and verifies actual editor selection', async () => {
   const f = pageFixture(['demo__scenario_customer_pc01', 'demo__scenario_agent_pc01']);
@@ -137,7 +166,7 @@ function backgroundFixture(item) {
     Date, AbortSignal, console,
     chrome: {
       storage: {
-        sync: { get: async defaults => ({ ...defaults, topic: 'fixture-topic', idleMinutes: '1' }) },
+        sync: { get: async defaults => ({ ...defaults, topic: 'fixture-topic', idleMinutes: '1', matchBy: 'item' }) },
         session: { get: async key => ({ [key]: structuredClone(state[key]) }), set: async values => Object.assign(state, structuredClone(values)), remove() {} }
       },
       runtime: { onMessage: event, onInstalled: event, onStartup: event },

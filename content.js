@@ -11,7 +11,7 @@
   if (!isSA(location.href) && !anc.some(isSA)) return;
 
   const TAG = "[Key Mapper]";
-  const { parse: parseItem, sameTask, isAgentItem, resolveAgentOption } = globalThis.KeyMapperItems;
+  const { parse: parseItem, matchesAgentTarget, resolveAgentOption } = globalThis.KeyMapperItems;
   const MSG = "key-mapper-enter-click";
   const TARGETS = [
     /^accept(\s+[\w .-]*)?$/i,   // "Accept", "Accept call", ...
@@ -379,7 +379,7 @@
     return null;
   }
 
-  async function switchItem(target) {
+  async function switchItem(target, matchBy = 'item') {
     if (switching) return;
     switching = true;
     const epoch = ++switchEpoch;
@@ -389,7 +389,7 @@
       if (!safe()) return;
       const myItem = detectItem();
       const selected = editorSelection();
-      if (selected && isAgentItem(selected.item) && sameTask(selected.item, target)) {
+      if (selected && matchesAgentTarget(selected.item, target, matchBy)) {
         return send({ type: 'km-progress', stage: 'item-done', item: selected.item, selected: true });
       }
       const trig = findItemTrigger(taught, myItem);
@@ -414,11 +414,11 @@
           const role = el.getAttribute('role');
           const option = role === 'option' || role === 'menuitem' ? el :
             el.closest && el.closest('[role="option"], [role="menuitem"]');
-          if (!option || !isVisible(option)) continue;
+          if (!option || !isVisible(option) || option.disabled || option.getAttribute('aria-disabled') === 'true') continue;
           const item = label(option);
           if (parseItem(item)) options.set(item, option);
         }
-        resolved = resolveAgentOption(target, [...options.keys()]);
+        resolved = resolveAgentOption(target, [...options.keys()], matchBy);
         return resolved.item ? options.get(resolved.item) : null;
       }, 8000, safe);
       if (!safe()) return;
@@ -468,7 +468,7 @@
   }
 
   chrome.runtime.onMessage.addListener((m) => {
-    if (m.type === "km-switch") switchItem(m.target);
+    if (m.type === "km-switch") switchItem(m.target, m.matchBy);
     else if (m.type === "km-status") setStatus(m.want);
     else if (m.type === 'km-cancel-switch') switchEpoch++;
     else if (m.type === "km-teach-done") teachSlot = null;

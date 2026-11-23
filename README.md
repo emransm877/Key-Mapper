@@ -4,7 +4,7 @@ Chrome extension for the **agent** side of the SuperAnnotate paired call test. T
 
 ## What it does
 - **Auto-accept:** clicks `Accept`, `Connect` and `Run <tool>` buttons as they appear. It highlights them first, then clicks after 0.7 s. **Alt+Shift+A** turns auto-click on and off. **Enter** (or **Ctrl+Enter** while typing) clicks the highlighted button by hand.
-- **Follow the caller:** when you're idle (no call, upload or button for *Idle minutes*, default 3), it checks which item your caller's Call Test Agent is on. If that item is different, it opens the item dropdown, searches for that item, opens it, and sets the status dropdown to **AgentInCall**.
+- **Follow the caller's company:** when you're idle (no call, upload or button for *Idle minutes*, default 1), it checks the company your caller is working on. If you're already in that company, your current assigned agent item stays selected. Otherwise it opens an available assigned agent item for that same company and sets **AgentInCall**. Exact task matching remains an optional mode.
 
 The two extensions talk through a private [ntfy.sh](https://ntfy.sh) topic. The caller's extension posts its current item name there, and Key Mapper reads it. Nothing else is sent. Use a random topic: anyone who knows it can read the item names.
 
@@ -21,7 +21,7 @@ If Key Mapper is already loaded, the same command finds it and only turns on one
 ## Set up the caller link
 1. Key Mapper popup: click **Generate topic** (it's copied to your clipboard).
 2. Your caller pastes the same topic in their Call Test Agent popup, in **Key Mapper topic**.
-3. Test it: while the caller is on an item, click **Switch to caller's item now**.
+3. Select **Switch when → the company is different**. Test it while the caller is on an item by clicking **Switch to caller's company now**.
 
 If the item or status dropdown isn't found, click **Item dropdown** or **Status dropdown** under **Teach**, then click the real dropdown on the page once.
 
@@ -30,7 +30,9 @@ Ship an update: change the code, **raise `version` in `manifest.json`**, and pus
 
 ## Follow-caller freshness and checks
 
-Version 2.0.3 matches the caller's customer task to the agent task for the same scenario **and the same task ID**: for example, `_customer_pc05` matches `_agent_pc05`, not `_agent_pc01` or `_agent_pc03`. If that exact task is unavailable in your dropdown, it does not select another variant. Legacy items without role/task suffixes match only the exact no-role item, and ambiguous options are not guessed. The extension cannot grant access to or assign an unavailable task. Switch completion requires the actual editor selection to change. Embedded call headings cannot overwrite a fresh selected editor item, and call activity cancels an item/status switch that is still waiting for a dropdown.
+Version 2.0.4 follows **the company**, not the customer's numbered task. A company is the full key before the role/task suffix (for example, `demo_industry__company_a`); sharing the broad `demo_industry` prefix does not mean two tasks belong to the same company. In company mode, any available assigned agent task for that company is suitable, and an agent already in that company stays on their current item even when the customer changes task numbers. Fresh settings default to company mode; existing explicit mode settings are preserved, so select **the company is different** if needed.
+
+The optional **exact task** mode still requires matching role/task IDs: `_customer_pc05` matches `_agent_pc05`, not another numbered variant. The extension cannot grant access to or assign an unavailable company/task. Switch completion requires the actual editor selection to change. Embedded call headings cannot overwrite a fresh selected editor item, and call activity cancels an item/status switch that is still waiting for a dropdown.
 
 After updating or reloading the extension, refresh the work page to replace old content scripts. If the popup asks you to refresh the work page, its selected-item heartbeat has not reached the extension yet. The caller's existing 1.4.1 broadcast remains compatible; no new caller update is required for this role-matching fix.
 

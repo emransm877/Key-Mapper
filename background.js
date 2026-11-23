@@ -5,13 +5,13 @@
 // sets the status dropdown to `wantStatus` (default AgentInCall).
 
 if (!globalThis.KeyMapperItems) importScripts('item-identity.js');
-const { sameTask, isAgentItem } = globalThis.KeyMapperItems;
+const { matchesAgentTarget } = globalThis.KeyMapperItems;
 
 const DEFAULTS = {
   topic: '',            // shared secret ntfy topic, same on both extensions
-  idleMinutes: '3',
+  idleMinutes: '1',
   autoSwitch: true,
-  matchBy: 'item',      // 'item' = switch when item differs, 'company' = only when company differs
+  matchBy: 'company',   // company following by default; exact task matching remains optional
   wantStatus: 'AgentInCall'
 };
 const REPO = 'emransm877/Key-Mapper';
@@ -24,7 +24,6 @@ const CALLER_MAX_AGE_MS = 2 * 60000;
 const busyReceived = new Map();
 
 const getCfg = () => chrome.storage.sync.get(DEFAULTS);
-const company = (item) => (item || '').split('__')[0];
 
 async function getState(tabId) {
   const k = 'tab' + tabId;
@@ -80,10 +79,10 @@ async function onTick(tabId, m, frameId = 0) {
       toast(tabId, `gave up switching to ${p.target} (stage: ${p.stage}). Will retry in 5 min.`, '#b42318');
       s.pending = null; s.cooldownUntil = now + COOLDOWN_MS;
     } else if (p.stage === 'item' && s.itemAuthority === 'editor' &&
-        isAgentItem(s.item) && sameTask(s.item, p.target)) {
+        matchesAgentTarget(s.item, p.target, p.matchBy || 'item')) {
       p.stage = 'status'; p.at = now;
     }
-    if (s.pending && s.pending.stage === 'item' && now - p.sentAt > 15000) { p.sentAt = now; toTab(tabId, { type: 'km-switch', target: p.target }); }
+    if (s.pending && s.pending.stage === 'item' && now - p.sentAt > 15000) { p.sentAt = now; toTab(tabId, { type: 'km-switch', target: p.target, matchBy: p.matchBy || 'item' }); }
     if (s.pending && s.pending.stage === 'status' && now - (p.sentAt || 0) > 4000) { p.sentAt = now; toTab(tabId, { type: 'km-status', want: cfg.wantStatus }); }
     return setState(tabId, s);
   }
@@ -97,11 +96,10 @@ async function onTick(tabId, m, frameId = 0) {
     const s2 = await getState(tabId);
     s2.lastBusy = Math.max(s2.lastBusy, busyReceived.get(tabId) || 0);
     if (Date.now() - s2.lastBusy <= idleMs) return setState(tabId, s2);
-    if (target && !(s2.itemAuthority === 'editor' && isAgentItem(s2.item) && sameTask(target, s2.item)) &&
-        (cfg.matchBy !== 'company' || company(target) !== company(s2.item))) {
-      s2.pending = { target, stage: 'item', at: Date.now(), sentAt: Date.now() };
+    if (target && !(s2.itemAuthority === 'editor' && matchesAgentTarget(s2.item, target, cfg.matchBy))) {
+      s2.pending = { target, matchBy: cfg.matchBy, stage: 'item', at: Date.now(), sentAt: Date.now() };
       await setState(tabId, s2);
-      toTab(tabId, { type: 'km-switch', target });
+      toTab(tabId, { type: 'km-switch', target, matchBy: cfg.matchBy });
     }
     return;
   }
@@ -111,7 +109,7 @@ async function onTick(tabId, m, frameId = 0) {
 async function onProgress(tabId, m) {
   const s = await getState(tabId);
   if (!s.pending) return;
-  if (m.stage === 'item-done' && m.selected === true && isAgentItem(m.item) && sameTask(m.item, s.pending.target)) {
+  if (m.stage === 'item-done' && m.selected === true && matchesAgentTarget(m.item, s.pending.target, s.pending.matchBy || 'item')) {
     s.item = m.item; s.itemAuthority = 'editor'; s.itemSeenAt = Date.now();
     s.pending.stage = 'status'; s.pending.at = Date.now(); s.pending.sentAt = 0;
   }
@@ -143,10 +141,10 @@ chrome.runtime.onMessage.addListener((m, sender, sendResponse) => {
       try { target = await callerItem(cfg.topic); } catch (e) { return sendResponse({ error: e.message }); }
       if (!target) return sendResponse({ error: 'Caller has not published an item yet.' });
       const s = await getState(m.tabId);
-      s.pending = { target, stage: 'item', at: Date.now(), sentAt: Date.now() };
+      s.pending = { target, matchBy: cfg.matchBy, stage: 'item', at: Date.now(), sentAt: Date.now() };
       await setState(m.tabId, s);
-      toTab(m.tabId, { type: 'km-switch', target });
-      sendResponse({ target });
+      toTab(m.tabId, { type: 'km-switch', target, matchBy: cfg.matchBy });
+      sendResponse({ target, matchBy: cfg.matchBy });
     })();
     return true;
   }

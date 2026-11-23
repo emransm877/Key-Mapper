@@ -21,9 +21,19 @@
     const a = parse(left), b = parse(right);
     return !!(a && b && a.key === b.key && a.roleId === b.roleId);
   };
-  const resolveAgentOption = (target, labels) => {
+  // A company is the full named scenario (category__company), not its category.
+  const sameCompany = sameScenario;
+  const matchesAgentTarget = (selected, target, matchBy) =>
+    isAgentItem(selected) && (matchBy === 'company' ? sameCompany(selected, target) : sameTask(selected, target));
+  const resolveAgentOption = (target, labels, matchBy = 'item') => {
     const requested = parse(target);
     if (!requested) return { item: null, ambiguous: false };
+    if (matchBy === 'company') {
+      // The owner explicitly wants any available agent item in this company.
+      // Keep the full company name; a different company in the same category is not a match.
+      const available = [...new Set(labels)].filter(label => isAgentItem(label) && sameCompany(label, target));
+      return { item: available[0] || null, ambiguous: false };
+    }
     const scenarioOptions = [...new Set(labels)].filter(label => isAgentItem(label) && sameScenario(label, target));
     const candidates = scenarioOptions.filter(label => sameTask(label, target));
     // A caller with an explicit task ID must never fall back to another ID.
@@ -31,5 +41,5 @@
     const ambiguous = requested.roleId ? candidates.length > 1 : scenarioOptions.length > 1;
     return { item: !ambiguous && candidates.length === 1 ? candidates[0] : null, ambiguous };
   };
-  globalThis.KeyMapperItems = Object.freeze({ parse, sameScenario, sameTask, isAgentItem, resolveAgentOption });
+  globalThis.KeyMapperItems = Object.freeze({ parse, sameScenario, sameTask, sameCompany, isAgentItem, matchesAgentTarget, resolveAgentOption });
 })();

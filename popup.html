@@ -28,15 +28,16 @@
   <label>Idle minutes before switching <input id="idleMinutes" type="number" min="0.5" step="0.5"></label>
   <label>Switch when
     <select id="matchBy">
-      <option value="item">the item is different</option>
       <option value="company">the company is different</option>
+      <option value="item">the exact task is different</option>
     </select></label>
   <label>Status to set after switching <input id="wantStatus"></label>
 
   <label>Teach <small>(only if switching can't find the dropdown)</small></label>
   <div class="btns"><button id="teachItem">Item dropdown</button><button id="teachStatus">Status dropdown</button></div>
-  <div class="btns"><button id="now">Switch to caller's item now</button></div>
+  <div class="btns"><button id="now">Switch to caller's company now</button></div>
   <div id="out"></div>
+  <script src="item-identity.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

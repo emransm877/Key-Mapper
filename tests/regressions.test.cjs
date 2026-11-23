@@ -87,7 +87,7 @@ test('call activity arriving during a relay request prevents an automatic item s
     Date, AbortSignal, console,
     chrome: {
       storage: {
-        sync: { get: async defaults => ({ ...defaults, topic: 'fixture-topic' }) },
+        sync: { get: async defaults => ({ ...defaults, topic: 'fixture-topic', matchBy: 'item' }) },
         session: { get: async key => ({ [key]: structuredClone(state[key]) }), set: async values => Object.assign(state, structuredClone(values)), remove() {} }
       },
       runtime: { onMessage: { addListener: fn => listener = fn }, onInstalled: event, onStartup: event },
@@ -106,4 +106,72 @@ test('call activity arriving during a relay request prevents an automatic item s
   await vm.runInContext('queue', context);
   assert.equal(sent.some(message => message.type === 'km-switch'), false);
   assert.equal(state.tab9.pending, null);
+});
+
+function companyWorker(settings = {}) {
+  const state = { tab9: { lastBusy: Date.now() - 600000, item: settings.item || 'demo_industry__old_company_agent_pc01', itemAuthority: 'editor', itemSeenAt: Date.now(), status: null, pending: null, cooldownUntil: 0 } };
+  const sent = [], event = { addListener() {} };
+  let listener;
+  const stored = {};
+  if (settings.matchBy) stored.matchBy = settings.matchBy;
+  const context = vm.createContext({
+    Date, AbortSignal, console,
+    chrome: {
+      storage: {
+        sync: { get: async defaults => ({ ...defaults, ...stored, topic: 'fixture-topic' }) },
+        session: { get: async key => ({ [key]: structuredClone(state[key]) }), set: async values => Object.assign(state, structuredClone(values)), remove() {} }
+      },
+      runtime: { onMessage: { addListener: fn => listener = fn }, onInstalled: event, onStartup: event },
+      tabs: { sendMessage: async (id, message) => sent.push(message), onRemoved: event }, alarms: { onAlarm: event }, action: {}
+    },
+    fetch: async () => ({ ok: true, text: async () => JSON.stringify({ event: 'message', time: Date.now() / 1000, message: JSON.stringify({ v: 1, item: 'demo_industry__company_a_customer_pc03' }) }) })
+  });
+  vm.runInContext(source('item-identity.js'), context); vm.runInContext(source('background.js'), context);
+  const tick = () => vm.runInContext('onTick(9, ' + JSON.stringify({ busy: false, item: state.tab9.item, itemAuthority: 'editor' }) + ', 4)', context);
+  const progress = item => vm.runInContext('onProgress(9, ' + JSON.stringify({ stage: 'item-done', selected: true, item }) + ')', context);
+  return { state, sent, stored, context, tick, progress, request: message => new Promise(resolve => listener(message, {}, resolve)) };
+}
+
+test('company default keeps an agent already in the caller company on their assigned task', async () => {
+  const f = companyWorker({ item: 'demo_industry__company_a_agent_pc01' });
+  await f.tick();
+  assert.equal(f.sent.some(message => message.type === 'km-switch'), false);
+  assert.equal(f.state.tab9.item, 'demo_industry__company_a_agent_pc01');
+});
+
+test('different named company within one industry requests company following', async () => {
+  const f = companyWorker();
+  await f.tick();
+  assert.equal(f.state.tab9.pending.matchBy, 'company');
+  assert.equal(f.sent.find(message => message.type === 'km-switch').matchBy, 'company');
+});
+
+test('pending company mode survives a settings change and accepts only the requested company', async () => {
+  const f = companyWorker();
+  await f.tick();
+  f.stored.matchBy = 'item';
+  f.state.tab9.pending.sentAt = Date.now() - 20000;
+  await f.tick();
+  assert.equal(f.sent.filter(message => message.type === 'km-switch').at(-1).matchBy, 'company');
+  await f.progress('demo_industry__other_company_agent_pc07');
+  assert.equal(f.state.tab9.pending.stage, 'item');
+  await f.progress('demo_industry__company_a_agent_pc07');
+  assert.equal(f.state.tab9.pending.stage, 'status');
+});
+
+test('an explicit exact-task preference remains strict inside the same company', async () => {
+  const f = companyWorker({ item: 'demo_industry__company_a_agent_pc01', matchBy: 'item' });
+  await f.tick();
+  assert.equal(f.sent.find(message => message.type === 'km-switch').matchBy, 'item');
+  await f.progress('demo_industry__company_a_agent_pc07');
+  assert.equal(f.state.tab9.pending.stage, 'item');
+});
+
+test('manual company request carries its mode without pretending the selection has changed', async () => {
+  const f = companyWorker();
+  const response = await f.request({ type: 'km-switch-now', tabId: 9 });
+  assert.equal(response.matchBy, 'company');
+  assert.equal(f.sent.find(message => message.type === 'km-switch').matchBy, 'company');
+  assert.equal(f.state.tab9.pending.stage, 'item');
+  assert.equal(f.state.tab9.item, 'demo_industry__old_company_agent_pc01');
 });
