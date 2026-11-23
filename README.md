@@ -30,10 +30,14 @@ Ship an update: change the code, **raise `version` in `manifest.json`**, and pus
 
 ## Follow-caller freshness and checks
 
-Key Mapper 2.0.1 expects the caller's current-item heartbeat at least once a minute. It only follows ntfy messages received by the relay within the last two minutes, using the relay timestamp so different caller computer clocks do not matter. If the caller closes the page or stops broadcasting, an old item is not used indefinitely. Both sides must use the updated link code; the caller integration is tracked in [Call Test Agent PR #1](https://github.com/antor1686/Call-Test-Agent/pull/1) until its maintainer merges it.
+Version 2.0.2 matches the caller's customer task to the corresponding agent task for the same scenario, including different company prefixes. The known `_customer_pc01` and `_agent_tp01` style suffixes are role/task IDs, not part of the scenario identity. It chooses only one matching agent-side dropdown option; if multiple variants match, it does not guess. Switch completion requires the actual editor selection to change. Embedded call headings cannot overwrite a fresh selected editor item, and call activity cancels an item/status switch that is still waiting for a dropdown.
+
+After updating or reloading the extension, refresh the work page to replace old content scripts. If the popup asks you to refresh the work page, its selected-item heartbeat has not reached the extension yet. The caller's existing 1.4.1 broadcast remains compatible; no new caller update is required for this role-matching fix.
+
+Key Mapper expects the caller's current-item heartbeat at least once a minute. It only follows ntfy messages received by the relay within the last two minutes, using the relay timestamp so different caller computer clocks do not matter. If the caller closes the page or stops broadcasting, an old item is not used indefinitely. The caller integration was merged in [Call Test Agent PR #1](https://github.com/antor1686/Call-Test-Agent/pull/1) and is available in upstream version 1.4.1.
 
 Keep one active caller work tab per topic. Multiple caller tabs publishing different items to the same topic can replace each other's current item.
 
-Run `node --test tests/regressions.test.cjs tests/native-host.test.cjs` for local regressions. These use synthetic page and relay data; the native messaging frame test runs on Windows. They do not prove the real site's dropdown selectors or a complete paired call. Test item selection and `AgentInCall` on the authorized live page before leaving auto-follow unattended.
+Run `node --test tests/regressions.test.cjs tests/native-host.test.cjs tests/item-follow.test.cjs` for local regressions. These use synthetic page and relay data; the native messaging frame test runs on Windows. They do not prove the real site's dropdown selectors or a complete paired call. Test item selection and `AgentInCall` on the authorized live page before leaving auto-follow unattended.
 
 The Windows updater downloads this repository's `main` source, not a GitHub Actions artifact. It runs only when you click Update now. Linux/macOS users can pull the repository and reload the unpacked extension; the Windows native helper is not portable.

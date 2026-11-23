@@ -1,7 +1,7 @@
 ﻿{
   "manifest_version": 3,
   "name": "Key Mapper",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Key Mapper: auto-accepts SuperAnnotate agent calls, clicks Run buttons (or on Enter), and follows the caller to their item when idle. Alt+Shift+A toggles auto-click.",
   "permissions": ["storage", "alarms", "nativeMessaging"],
   "host_permissions": ["https://ntfy.sh/*", "https://raw.githubusercontent.com/*"],
@@ -10,7 +10,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["item-identity.js", "content.js"],
       "all_frames": true,
       "match_about_blank": true,
       "match_origin_as_fallback": true,

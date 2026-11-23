@@ -52,7 +52,7 @@ $('now').onclick = async () => {
   const tab = await activeTab();
   if (!tab) return;
   chrome.runtime.sendMessage({ type: 'km-state', tabId: tab.id }, (s) => {
-    if (!s || !s.item) return;
+    if (!s || !s.item) return out('Waiting for the work page. Refresh your SuperAnnotate work page after updating, then reopen this popup.');
     const idle = Math.round((Date.now() - s.lastBusy) / 1000);
     out(`This tab: ${s.item}\nStatus: ${s.status || '?'}\nIdle: ${idle}s${s.pending ? '\nSwitching to ' + s.pending.target + ' (' + s.pending.stage + ')' : ''}`);
   });

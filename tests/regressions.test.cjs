@@ -28,7 +28,9 @@ function contentHarness(url = 'https://app.superannotate.com/editor') {
     setTimeout: fn => { timers.push(fn); return timers.length; },
     setInterval: fn => { timers.push(fn); return timers.length; }, Date
   };
-  vm.runInNewContext(source('content.js'), context);
+  vm.createContext(context);
+  vm.runInContext(source('item-identity.js'), context);
+  vm.runInContext(source('content.js'), context);
   return { listeners, messages, document, button };
 }
 
@@ -94,6 +96,7 @@ test('call activity arriving during a relay request prevents an automatic item s
     },
     fetch: () => new Promise(resolve => finishFetch = resolve)
   });
+  vm.runInContext(source('item-identity.js'), context);
   vm.runInContext(source('background.js'), context);
   listener({ type: 'km-tick', busy: false, item: 'travel__old' }, { tab: { id: 9 } });
   await new Promise(resolve => setImmediate(resolve));

@@ -4,6 +4,9 @@
 // Call Test Agent extension). If it differs, it switches this tab to that item and then
 // sets the status dropdown to `wantStatus` (default AgentInCall).
 
+if (!globalThis.KeyMapperItems) importScripts('item-identity.js');
+const { sameScenario, isAgentItem } = globalThis.KeyMapperItems;
+
 const DEFAULTS = {
   topic: '',            // shared secret ntfy topic, same on both extensions
   idleMinutes: '3',
@@ -54,13 +57,21 @@ async function callerItem(topic) {
 const toTab = (tabId, m) => chrome.tabs.sendMessage(tabId, m).catch(() => {});
 const toast = (tabId, text, color) => toTab(tabId, { type: 'km-toast', text, color });
 
-async function onTick(tabId, m) {
+async function onTick(tabId, m, frameId = 0) {
   const cfg = await getCfg();
   const s = await getState(tabId);
   const now = Date.now();
   s.lastBusy = Math.max(s.lastBusy, busyReceived.get(tabId) || 0);
   if (m.busy) { s.lastBusy = now; s.pending = null; }
-  if (m.item) s.item = m.item;
+  // The selected editor control outranks an embedded call's scenario heading.
+  // Retain the latter only as a fallback when an editor heartbeat has gone stale.
+  if (m.item && (m.itemAuthority === 'editor' || s.itemAuthority !== 'editor' ||
+      now - (s.itemSeenAt || 0) > 15000)) {
+    s.item = m.item;
+    s.itemAuthority = m.itemAuthority === 'editor' ? 'editor' : 'scenario';
+    s.itemFrameId = frameId;
+    s.itemSeenAt = now;
+  }
   if (m.status) s.status = m.status;
 
   const p = s.pending;
@@ -68,7 +79,8 @@ async function onTick(tabId, m) {
     if (now - p.at > STEP_TIMEOUT_MS) {
       toast(tabId, `gave up switching to ${p.target} (stage: ${p.stage}). Will retry in 5 min.`, '#b42318');
       s.pending = null; s.cooldownUntil = now + COOLDOWN_MS;
-    } else if (p.stage === 'item' && s.item === p.target) {
+    } else if (p.stage === 'item' && s.itemAuthority === 'editor' &&
+        isAgentItem(s.item) && sameScenario(s.item, p.target)) {
       p.stage = 'status'; p.at = now;
     }
     if (s.pending && s.pending.stage === 'item' && now - p.sentAt > 15000) { p.sentAt = now; toTab(tabId, { type: 'km-switch', target: p.target }); }
@@ -85,7 +97,8 @@ async function onTick(tabId, m) {
     const s2 = await getState(tabId);
     s2.lastBusy = Math.max(s2.lastBusy, busyReceived.get(tabId) || 0);
     if (Date.now() - s2.lastBusy <= idleMs) return setState(tabId, s2);
-    if (target && target !== s2.item && (cfg.matchBy !== 'company' || company(target) !== company(s2.item))) {
+    if (target && !(s2.itemAuthority === 'editor' && isAgentItem(s2.item) && sameScenario(target, s2.item)) &&
+        (cfg.matchBy !== 'company' || company(target) !== company(s2.item))) {
       s2.pending = { target, stage: 'item', at: Date.now(), sentAt: Date.now() };
       await setState(tabId, s2);
       toTab(tabId, { type: 'km-switch', target });
@@ -98,7 +111,10 @@ async function onTick(tabId, m) {
 async function onProgress(tabId, m) {
   const s = await getState(tabId);
   if (!s.pending) return;
-  if (m.stage === 'item-done') { s.item = m.item; s.pending.stage = 'status'; s.pending.at = Date.now(); s.pending.sentAt = 0; }
+  if (m.stage === 'item-done' && m.selected === true && isAgentItem(m.item) && sameScenario(m.item, s.pending.target)) {
+    s.item = m.item; s.itemAuthority = 'editor'; s.itemSeenAt = Date.now();
+    s.pending.stage = 'status'; s.pending.at = Date.now(); s.pending.sentAt = 0;
+  }
   if (m.stage === 'item-fail' || m.stage === 'status-fail') { s.pending = null; s.cooldownUntil = Date.now() + COOLDOWN_MS; }
   if (m.stage === 'status-done') { s.pending = null; s.lastBusy = Date.now(); }
   await setState(tabId, s);
@@ -110,8 +126,11 @@ const serial = (fn) => { queue = queue.then(fn, fn).catch((e) => console.warn('[
 
 chrome.runtime.onMessage.addListener((m, sender, sendResponse) => {
   const tabId = sender.tab && sender.tab.id;
-  if (m.type === 'km-tick' && m.busy && tabId != null) busyReceived.set(tabId, Date.now());
-  if (m.type === 'km-tick' && tabId != null) serial(() => onTick(tabId, m));
+  if (m.type === 'km-tick' && m.busy && tabId != null) {
+    busyReceived.set(tabId, Date.now());
+    toTab(tabId, { type: 'km-cancel-switch' });
+  }
+  if (m.type === 'km-tick' && tabId != null) serial(() => onTick(tabId, m, sender.frameId));
   else if (m.type === 'km-progress' && tabId != null) serial(() => onProgress(tabId, m));
   else if (m.type === 'km-toast' && tabId != null) toast(tabId, m.text, m.color);
   else if (m.type === 'km-taught' && tabId != null) toTab(tabId, { type: 'km-teach-done' });

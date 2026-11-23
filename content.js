@@ -11,6 +11,7 @@
   if (!isSA(location.href) && !anc.some(isSA)) return;
 
   const TAG = "[Key Mapper]";
+  const { parse: parseItem, sameScenario, isAgentItem, resolveAgentOption } = globalThis.KeyMapperItems;
   const MSG = "key-mapper-enter-click";
   const TARGETS = [
     /^accept(\s+[\w .-]*)?$/i,   // "Accept", "Accept call", ...
@@ -33,6 +34,7 @@
   let lastClickAt = 0; // counts as activity
   // refresh() runs during startup, so this guard must exist before that call.
   let switching = false;
+  let switchEpoch = 0;
 
   const send = (m) => { try { chrome.runtime.sendMessage(m).catch(() => {}); } catch (_) {} };
 
@@ -204,8 +206,30 @@
   const BUSY_TEXT = /Sending the agent recording|Collecting the agent|Conversation in progress|Uploading/i;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  // Read the selected editor control, not an embedded call's scenario title or
+  // our own toast text. Its task role/ID is authoritative for switch completion.
+  function editorSelection() {
+    const candidates = [];
+    for (const el of walk(document)) {
+      if (!isVisible(el)) continue;
+      const role = el.getAttribute('role');
+      if (role !== 'combobox' && el.tagName !== 'SN-CHIP' && !el.getAttribute('aria-haspopup')) continue;
+      let labelled = el;
+      for (let depth = 0; labelled && depth < 4; depth++, labelled = labelled.parentElement) {
+        // A searchable combobox input contains the query, not the selection.
+        // DOM textContent deliberately excludes input.value at every level.
+        const item = (labelled.textContent || '').replace(/\s+/g, ' ').trim();
+        if (parseItem(item)) { candidates.push({ item, trigger: el }); break; }
+      }
+    }
+    const unique = [...new Set(candidates.map(candidate => candidate.item))];
+    return unique.length === 1 ? candidates.find(candidate => candidate.item === unique[0]) : null;
+  }
+
   // Current item name in this frame, e.g. "travel_hospitality__tideglass_passage".
   function detectItem() {
+    const selected = editorSelection();
+    if (selected) return selected.item;
     const text = (document.body && document.body.innerText) || "";
     // Header line "travel_hospitality · travel_hospitality__tideglass_passage" wins.
     const h = text.match(/([a-z0-9_]+)\s*·\s*(\1__[a-z0-9_]+)/i);
@@ -302,8 +326,9 @@
     input.dispatchEvent(new Event("change", { bubbles: true }));
     input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: text.slice(-1) }));
   }
-  async function waitFor(fn, ms) {
+  async function waitFor(fn, ms, keepWaiting = () => true) {
     for (const end = Date.now() + ms; Date.now() < end; await sleep(200)) {
+      if (!keepWaiting()) return null;
       const v = fn();
       if (v) return v;
     }
@@ -331,6 +356,8 @@
   function findItemTrigger(taught, myItem) {
     const t = findTaught(taught.item);
     if (t) return t;
+    const selected = editorSelection();
+    if (selected) return selected.trigger;
     if (!myItem) return null;
     let best = null;
     for (const el of walk(document)) {
@@ -353,13 +380,20 @@
   }
 
   async function switchItem(target) {
-    const taught = await getTaught();
-    const myItem = detectItem();
-    if (myItem === target) return send({ type: "km-progress", stage: "item-done", item: target });
-    const trig = findItemTrigger(taught, myItem);
-    if (!trig) return; // not in this frame
+    if (switching) return;
     switching = true;
+    const epoch = ++switchEpoch;
+    const safe = () => epoch === switchEpoch && !isBusy();
     try {
+      const taught = await getTaught();
+      if (!safe()) return;
+      const myItem = detectItem();
+      const selected = editorSelection();
+      if (selected && isAgentItem(selected.item) && sameScenario(selected.item, target)) {
+        return send({ type: 'km-progress', stage: 'item-done', item: selected.item, selected: true });
+      }
+      const trig = findItemTrigger(taught, myItem);
+      if (!trig) return; // not in this frame
       toast("caller is on " + target + " - switching item…", "#0b5cad");
       const before = new Set(Array.from(document.querySelectorAll("input")));
       realClick(trig);
@@ -367,29 +401,59 @@
         const inputs = Array.from(document.querySelectorAll("input")).filter((i) => isVisible(i) && !/^(checkbox|radio|hidden)$/i.test(i.type));
         return inputs.find((i) => /search|item/i.test(i.placeholder || "")) || inputs.find((i) => !before.has(i)) ||
                (document.activeElement && document.activeElement.tagName === "INPUT" ? document.activeElement : null);
-      }, 4000);
-      if (search) typeInto(search, target);
-      const opt = await waitFor(() => findByText((t) => t === target, trig), 8000);
-      if (!opt) {
-        toast("could not find item " + target + " in the list. Teach the item dropdown in the popup.", "#b42318");
+      }, 4000, safe);
+      if (!safe()) return;
+      const identity = parseItem(target);
+      if (!identity) return send({ type: 'km-progress', stage: 'item-fail' });
+      if (search) typeInto(search, identity.key);
+      let resolved = { item: null, ambiguous: false };
+      const opt = await waitFor(() => {
+        const options = new Map();
+        for (const el of walk(document)) {
+          if (el === trig || !isVisible(el)) continue;
+          const role = el.getAttribute('role');
+          const option = role === 'option' || role === 'menuitem' ? el :
+            el.closest && el.closest('[role="option"], [role="menuitem"]');
+          if (!option || !isVisible(option)) continue;
+          const item = label(option);
+          if (parseItem(item)) options.set(item, option);
+        }
+        resolved = resolveAgentOption(target, [...options.keys()]);
+        return resolved.item ? options.get(resolved.item) : null;
+      }, 8000, safe);
+      if (!safe()) return;
+      if (!opt || resolved.ambiguous) {
+        toast(resolved.ambiguous ? 'multiple agent items match this caller; no item was selected.' :
+          "could not find an agent item for " + target + " in the list. Teach the item dropdown in the popup.", "#b42318");
         return send({ type: "km-progress", stage: "item-fail", item: target });
       }
       realClick(opt);
-      send({ type: "km-progress", stage: "item-clicked", item: target });
+      const confirmed = await waitFor(() => {
+        const current = editorSelection();
+        return current && current.item === resolved.item ? current : null;
+      }, 8000, safe);
+      if (!safe()) return;
+      if (!confirmed) return send({ type: 'km-progress', stage: 'item-fail', item: target });
+      send({ type: 'km-progress', stage: 'item-done', item: confirmed.item, selected: true });
     } finally {
       switching = false;
     }
   }
 
   async function setStatus(want) {
-    const taught = await getTaught();
-    const trig = findStatusTrigger(taught);
-    if (!trig) return;
-    if (label(trig) === want) return send({ type: "km-progress", stage: "status-done" });
+    if (switching) return;
     switching = true;
+    const epoch = ++switchEpoch;
+    const safe = () => epoch === switchEpoch && !isBusy();
     try {
+      const taught = await getTaught();
+      if (!safe()) return;
+      const trig = findStatusTrigger(taught);
+      if (!trig) return;
+      if (label(trig) === want) return send({ type: "km-progress", stage: "status-done" });
       realClick(trig);
-      const opt = await waitFor(() => findByText((t) => t === want || new RegExp("(→|->)\\s*" + want + "$").test(t), trig), 4000);
+      const opt = await waitFor(() => findByText((t) => t === want || new RegExp("(→|->)\\s*" + want + "$").test(t), trig), 4000, safe);
+      if (!safe()) return;
       if (!opt) {
         realClick(trig); // close it again
         toast('no "' + want + '" option in the status dropdown. Teach it in the popup.', "#b42318");
@@ -406,6 +470,7 @@
   chrome.runtime.onMessage.addListener((m) => {
     if (m.type === "km-switch") switchItem(m.target);
     else if (m.type === "km-status") setStatus(m.want);
+    else if (m.type === 'km-cancel-switch') switchEpoch++;
     else if (m.type === "km-teach-done") teachSlot = null;
     else if (m.type === "km-teach") { teachSlot = m.slot; setTimeout(() => { teachSlot = null; }, 30000); if (window === window.top) toast("click the " + m.slot + " dropdown now", "#0b5cad"); }
     else if (m.type === "km-toast" && window === window.top) toast(m.text, m.color);
@@ -414,7 +479,9 @@
   // Heartbeat to background every 3 s.
   const tick = () => {
     const trig = findStatusTrigger({});
-    send({ type: "km-tick", busy: isBusy(), item: detectItem(), status: trig ? label(trig) : null });
+    const selected = editorSelection();
+    send({ type: "km-tick", busy: isBusy(), item: selected ? selected.item : detectItem(),
+      itemAuthority: selected ? 'editor' : 'scenario', status: trig ? label(trig) : null });
   };
   setInterval(tick, 3000);
   tick();
