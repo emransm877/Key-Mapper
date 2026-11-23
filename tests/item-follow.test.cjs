@@ -7,7 +7,7 @@ const source = name => fs.readFileSync(path.join(__dirname, '..', name), 'utf8')
 
 function pageFixture(labels, changesSelection = true, settings = {}) {
   let now = Date.now(), opened = false, selected = settings.initialSelected || 'demo__previous_agent_tp01';
-  let runtimeListener, openCount = 0, canceled = false;
+  let runtimeListener, openCount = 0, canceled = false, inputClicks = 0;
   const messages = [], clicked = [];
   class E { constructor(type, options) { this.type = type; Object.assign(this, options); } }
   const element = (text = '', role = '') => ({
@@ -23,26 +23,38 @@ function pageFixture(labels, changesSelection = true, settings = {}) {
   const selectedName = element(selected);
   selectedName.className = 'project-item-name';
   const projectSelect = element();
+  const dropdownPanel = element('', 'listbox');
   projectSelect.tagName = 'SN-SELECT';
   projectSelect.getAttribute = name => name === 'data-qa-id' ? 'project-items-select' : '';
   Object.defineProperty(projectSelect, 'textContent', { get: () => 'Select an item' + selectedName.textContent + 'demo__...' });
   projectSelect.querySelectorAll = selector => {
     if (selector === '.sn-value .project-item-name') return [selectedName];
-    if (selector === 'input') return opened ? [input] : [];
+    if (selector === 'input, textarea' || selector === '.sn-select-input input, .sn-select-input textarea') {
+      return opened || settings.legacyTaughtInput ? [...(settings.hiddenProjectInput ? [hiddenInput] : []), input] : [];
+    }
     if (selector === 'select-dropdown-panel[role="listbox"] [role="option"]') {
       return opened && !settings.delayedOptions ? options.filter(option => option.textContent.includes(input.value)) : [];
     }
     return [];
   };
   projectSelect.contains = other => other === projectSelect || other === trigger || other === input || other === selectedName;
-  projectSelect.querySelector = () => trigger;
+  projectSelect.querySelector = selector => selector === 'select-dropdown-panel[role="listbox"]' ? (opened ? dropdownPanel : null) : trigger;
   trigger.parentElement = settings.realSnSelect ? projectSelect : null;
   trigger.onclick = () => { opened = !opened; openCount++; };
   class Input {
     constructor() { Object.assign(this, element()); this.tagName = 'INPUT'; this.type = 'text'; this.placeholder = 'Search item'; this._value = ''; }
-    get value() { return this._value; } set value(value) { this._value = value; }
+    get value() { return this._value; } set value(value) { if (this.tagName !== 'INPUT') throw new TypeError('Native input setter used on another element'); this._value = value; }
   }
-  const input = new Input();
+  class TextArea extends Input {
+    constructor() { super(); this.tagName = 'TEXTAREA'; this.type = 'textarea'; this.rows = 1; }
+    get value() { return this._value; } set value(value) { if (this.tagName !== 'TEXTAREA') throw new TypeError('Native textarea setter used on another element'); this._value = value; }
+  }
+  const input = settings.textareaSearch ? new TextArea() : new Input();
+  if (settings.zeroWidthSearch) input.getBoundingClientRect = () => ({ width: 0, height: 20, left: 0, top: 0 });
+  const hiddenInput = new Input();
+  hiddenInput.type = 'hidden'; hiddenInput.hidden = true; hiddenInput.placeholder = 'Search hidden controls';
+  input.id = 'fixture-legacy-input';
+  input.onclick = () => { inputClicks++; if (settings.genericTaughtOpener) trigger.onclick(); };
   const unrelatedInput = new Input();
   unrelatedInput.placeholder = 'Search unrelated records';
   if (settings.searchInputOnly) input.getAttribute = name => name === 'role' ? 'combobox' : '';
@@ -61,10 +73,10 @@ function pageFixture(labels, changesSelection = true, settings = {}) {
     option.onclick = () => { clicked.push(label); if (changesSelection) { selected = label; selectedName.textContent = label; if (!settings.realSnSelect) trigger.textContent = label; } opened = false; };
     return option;
   });
-  const all = () => [...(settings.realSnSelect ? [projectSelect, selectedName] : []), ...(settings.unrelatedSearch ? [unrelatedInput] : []), trigger, ...(opened ? [input, ...(settings.delayedOptions ? [] : options.filter(option => option.textContent.includes(input.value)))] : [])];
+  const all = () => [...(settings.realSnSelect ? [projectSelect, selectedName] : []), ...(settings.unrelatedSearch ? [unrelatedInput] : []), trigger, ...(opened || settings.legacyTaughtInput ? [input] : []), ...(opened && !settings.delayedOptions ? options.filter(option => option.textContent.includes(input.value)) : [])];
   const doc = {
     documentElement: { appendChild() {} }, body: { get innerText() { return selected; } },
-    querySelectorAll: selector => selector === 'sn-select[data-qa-id="project-items-select"]' ? (settings.realSnSelect ? [projectSelect] : []) : selector === 'input' ? [...(settings.unrelatedSearch ? [unrelatedInput] : []), ...(opened ? [input] : [])] : all(),
+    querySelectorAll: selector => selector === 'sn-select[data-qa-id="project-items-select"]' ? (settings.realSnSelect ? [projectSelect] : []) : selector === 'input, textarea' ? [...(settings.unrelatedSearch ? [unrelatedInput] : []), ...(opened || settings.legacyTaughtInput ? [input] : [])] : all(),
     addEventListener() {}, createElement: () => element(), activeElement: null
   };
   const window = { frames: [], addEventListener() {} }; window.top = window;
@@ -72,8 +84,8 @@ function pageFixture(labels, changesSelection = true, settings = {}) {
     window, document: doc, location: { href: 'https://app.superannotate.com/editor', ancestorOrigins: [] }, URL,
     getComputedStyle: () => ({ visibility: 'visible', display: 'block', cursor: 'pointer' }),
     localStorage: { getItem: () => null }, console: { log() {} },
-    chrome: { runtime: { sendMessage: message => { messages.push(message); return Promise.resolve(); }, onMessage: { addListener: fn => runtimeListener = fn } }, storage: { local: { get: async () => ({ taught: {} }) } } },
-    MutationObserver: class { observe() {} }, HTMLInputElement: Input, PointerEvent: E, MouseEvent: E, Event: E, KeyboardEvent: E,
+    chrome: { runtime: { sendMessage: message => { messages.push(message); return Promise.resolve(); }, onMessage: { addListener: fn => runtimeListener = fn } }, storage: { local: { get: async () => ({ taught: settings.legacyTaughtInput ? { item: { tag: 'input', id: 'fixture-legacy-input', cls: [], path: 'legacy-search' } } : {} }) } } },
+    MutationObserver: class { observe() {} }, HTMLInputElement: Input, HTMLTextAreaElement: TextArea, PointerEvent: E, MouseEvent: E, Event: E, KeyboardEvent: E,
     Date: class extends Date { static now() { return now; } },
     setTimeout: (fn, milliseconds) => {
       now += milliseconds;
@@ -84,7 +96,7 @@ function pageFixture(labels, changesSelection = true, settings = {}) {
   });
   vm.runInContext(source('item-identity.js'), ctx);
   vm.runInContext(source('content.js').replace('  tick();', '  globalThis.followFixture = { switchItem, tick };\n  tick();'), ctx);
-  return { ctx, messages, clicked, selected: () => selected, opens: () => openCount, searchValues: () => ({ actual: input.value, unrelated: unrelatedInput.value }), switchTo: (item, mode) => ctx.followFixture.switchItem(item, mode) };
+  return { ctx, messages, clicked, selected: () => selected, opens: () => openCount, inputClicks: () => inputClicks, searchValues: () => ({ actual: input.value, unrelated: unrelatedInput.value, ...(settings.hiddenProjectInput ? { hidden: hiddenInput.value } : {}) }), switchTo: (item, mode) => ctx.followFixture.switchItem(item, mode) };
 }
 
 test('real project selector reads its dedicated value despite placeholder and duplicated truncated text', async () => {
@@ -116,6 +128,43 @@ test('real project dropdown reads option display leaves and types only in its ow
   assert.deepEqual(f.clicked, ['demo__scenario_agent_pc05']);
   assert.deepEqual(f.searchValues(), { actual: 'demo__scenario', unrelated: '' });
   assert.equal(f.messages.at(-1).selected, true);
+});
+
+test('legacy taught search INPUT cannot override the known project selector opener', async () => {
+  const f = pageFixture(['demo__scenario_agent_pc05'], true, { realSnSelect: true, legacyTaughtInput: true });
+  await f.switchTo('demo__scenario_customer_pc03', 'company');
+  assert.equal(f.inputClicks(), 0);
+  assert.equal(f.opens(), 1);
+  assert.deepEqual(f.clicked, ['demo__scenario_agent_pc05']);
+  assert.equal(f.messages.at(-1).stage, 'item-done');
+});
+
+test('an open project dropdown types in its zero-width search field without using a hidden auxiliary input', async () => {
+  const f = pageFixture(['demo__scenario_agent_pc05'], true, {
+    realSnSelect: true, zeroWidthSearch: true, hiddenProjectInput: true, unrelatedSearch: true
+  });
+  await f.switchTo('demo__scenario_customer_pc03', 'company');
+  assert.deepEqual(f.searchValues(), { actual: 'demo__scenario', unrelated: '', hidden: '' });
+  assert.deepEqual(f.clicked, ['demo__scenario_agent_pc05']);
+  assert.equal(f.messages.at(-1).stage, 'item-done');
+});
+
+test('actual SN-select textarea search uses its native setter even with a zero-width field', async () => {
+  const f = pageFixture(['demo__scenario_agent_pc05'], true, {
+    realSnSelect: true, textareaSearch: true, zeroWidthSearch: true, hiddenProjectInput: true, unrelatedSearch: true
+  });
+  await f.switchTo('demo__scenario_customer_pc03', 'company');
+  assert.deepEqual(f.searchValues(), { actual: 'demo__scenario', unrelated: '', hidden: '' });
+  assert.deepEqual(f.clicked, ['demo__scenario_agent_pc05']);
+  assert.equal(f.messages.at(-1).stage, 'item-done');
+});
+
+test('a taught opener remains usable for a widget without the known project selector structure', async () => {
+  const f = pageFixture(['demo__scenario_agent_pc05'], true, { legacyTaughtInput: true, genericTaughtOpener: true });
+  await f.switchTo('demo__scenario_customer_pc03', 'company');
+  assert.equal(f.inputClicks(), 1);
+  assert.equal(f.opens(), 1);
+  assert.deepEqual(f.clicked, ['demo__scenario_agent_pc05']);
 });
 
 test('real project option with conflicting item identity is never clicked', async () => {

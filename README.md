@@ -30,7 +30,7 @@ Ship an update: change the code, **raise `version` in `manifest.json`**, and pus
 
 ## Follow-caller freshness and checks
 
-Version 2.0.5 reads the live site's dedicated selected-item and option-name fields. Placeholder, status-icon and tooltip text are not treated as part of the item name. Company following remains the default described below.
+Version 2.0.6 opens the live project's selector through its dedicated container, even when an older taught mapping points at the search input, and supports its textarea search control. Version 2.0.5 reads the site's dedicated selected-item and option-name fields. Placeholder, status-icon and tooltip text are not treated as part of the item name. Company following remains the default described below.
 
 Version 2.0.4 follows **the company**, not the customer's numbered task. A company is the full key before the role/task suffix (for example, `demo_industry__company_a`); sharing the broad `demo_industry` prefix does not mean two tasks belong to the same company. In company mode, any available assigned agent task for that company is suitable, and an agent already in that company stays on their current item even when the customer changes task numbers. Fresh settings default to company mode; existing explicit mode settings are preserved, so select **the company is different** if needed.
 

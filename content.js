@@ -223,8 +223,8 @@
           if (!isVisible(value)) continue;
           const item = (value.textContent || '').replace(/\s+/g, ' ').trim();
           if (!parseItem(item)) continue;
-          const trigger = select.querySelector('[role="combobox"]') || select.querySelector('.sn-select-container');
-          if (trigger && isVisible(trigger)) selected.push({ item, trigger });
+          const trigger = select.querySelector('.sn-select-container') || select.querySelector('[role="combobox"]');
+          if (trigger && !/^(INPUT|TEXTAREA)$/.test(trigger.tagName) && isVisible(trigger)) selected.push({ item, trigger });
         }
       }
       const unique = [...new Set(selected.map(candidate => candidate.item))];
@@ -341,7 +341,8 @@
   }
   function typeInto(input, text) {
     input.focus();
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+    const prototype = input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(prototype, "value").set;
     setter.call(input, text);
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -375,9 +376,13 @@
     lbl === item || (/(\.\.\.|…)$/.test(lbl) && item.startsWith(lbl.replace(/(\.\.\.|…)$/, "")));
 
   function findItemTrigger(taught, myItem) {
+    const selected = editorSelection();
+    // A legacy taught INPUT is the selector's search field, not its opener.
+    // The observed project widget has a dedicated clickable container. Keep
+    // manual mappings as fallback only for widgets without this known structure.
+    if (projectItemSelects().length) return selected ? selected.trigger : null;
     const t = findTaught(taught.item);
     if (t) return t;
-    const selected = editorSelection();
     if (selected) return selected.trigger;
     if (!myItem) return null;
     let best = null;
@@ -417,10 +422,22 @@
       if (!trig) return; // not in this frame
       toast("caller is on " + target + " - switching item…", "#0b5cad");
       const searchRoot = projectItemSelects().find(select => select.contains(trig)) || document;
-      const before = new Set(Array.from(searchRoot.querySelectorAll("input")));
+      const before = new Set(Array.from(searchRoot.querySelectorAll('input, textarea')));
       realClick(trig);
       const search = await waitFor(() => {
-        const inputs = Array.from(searchRoot.querySelectorAll("input")).filter((i) => isVisible(i) && !/^(checkbox|radio|hidden)$/i.test(i.type));
+        const knownProject = searchRoot !== document;
+        const inputs = Array.from(searchRoot.querySelectorAll(knownProject ? '.sn-select-input input, .sn-select-input textarea' : 'input, textarea')).filter(i => {
+          if (i.disabled || i.readOnly || i.hidden || /^(checkbox|radio|hidden)$/i.test(i.type)) return false;
+          if (!knownProject) return isVisible(i);
+          // The known search field can be extremely narrow while empty.
+          // Only its editable input/textarea in an open, visible widget qualifies.
+          if ((i.tagName !== 'TEXTAREA' && !/^(text|search)$/i.test(i.type)) || i.getAttribute('aria-hidden') === 'true') return false;
+          const style = getComputedStyle(i);
+          const container = searchRoot.querySelector('.sn-select-container');
+          const panel = searchRoot.querySelector('select-dropdown-panel[role="listbox"]');
+          return style.display !== 'none' && !/^(hidden|collapse)$/.test(style.visibility) &&
+            container && panel && isVisible(container) && isVisible(panel);
+        });
         return inputs.find((i) => /search|item/i.test(i.placeholder || "")) || inputs.find((i) => !before.has(i)) ||
                (document.activeElement && inputs.includes(document.activeElement) ? document.activeElement : null) ||
                (searchRoot !== document && inputs.length === 1 ? inputs[0] : null);
