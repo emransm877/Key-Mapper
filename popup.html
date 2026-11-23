@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Key Mapper</title>
+<style>
+  body { width: 300px; font: 13px system-ui, sans-serif; margin: 10px; color: #1f2328; }
+  h1 { font-size: 15px; margin: 0 0 6px; }
+  label { display: block; font-weight: 600; margin-top: 8px; }
+  input, select { width: 100%; box-sizing: border-box; padding: 5px 6px; margin-top: 3px; font: inherit; }
+  label.row { display: flex; gap: 6px; align-items: center; font-weight: 600; }
+  label.row input { width: auto; margin: 0; }
+  .btns { display: flex; gap: 6px; margin-top: 8px; }
+  button { flex: 1; padding: 6px; cursor: pointer; font: inherit; }
+  #out { margin-top: 8px; white-space: pre-wrap; font-size: 12px; color: #57606a; }
+  #upd { display: none; background: #dafbe1; padding: 6px; border-radius: 4px; margin-bottom: 6px; }
+  small { color: #57606a; font-weight: 400; }
+</style>
+</head>
+<body>
+  <h1>Key Mapper <small id="ver"></small></h1>
+  <div id="upd">Update <b id="latest"></b> is out. <button id="update">Update now</button></div>
+
+  <label class="row"><input type="checkbox" id="autoSwitch"> Follow the caller when idle</label>
+  <label>ntfy topic <small>(same as your caller's)</small>
+    <input id="topic" placeholder="e.g. km-8f3k2q9x"></label>
+  <div class="btns"><button id="gen">Generate topic</button></div>
+  <label>Idle minutes before switching <input id="idleMinutes" type="number" min="0.5" step="0.5"></label>
+  <label>Switch when
+    <select id="matchBy">
+      <option value="item">the item is different</option>
+      <option value="company">the company is different</option>
+    </select></label>
+  <label>Status to set after switching <input id="wantStatus"></label>
+
+  <label>Teach <small>(only if switching can't find the dropdown)</small></label>
+  <div class="btns"><button id="teachItem">Item dropdown</button><button id="teachStatus">Status dropdown</button></div>
+  <div class="btns"><button id="now">Switch to caller's item now</button></div>
+  <div id="out"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
