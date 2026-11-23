@@ -1,4 +1,4 @@
-// Key Mapper - content script (runs in every frame of SuperAnnotate pages).
+// Key Mapper - content script (runs in every frame of supported work pages).
 // 1) Auto-clicks Accept / Connect / Run <tool> buttons (or on Enter). Alt+Shift+A toggles.
 // 2) Reports busy/idle + current item to background.js, and on its command switches
 //    to the caller's item and sets the call status (e.g. AgentInCall).

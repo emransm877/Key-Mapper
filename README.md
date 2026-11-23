@@ -1,6 +1,6 @@
 # Key Mapper
 
-Chrome extension for the **agent** side of the SuperAnnotate paired call test. The customer side is [Call Test Agent](https://github.com/antor1686/Call-Test-Agent).
+Chrome extension for the **agent** side of the paired call test. The customer side is [Call Test Agent](https://github.com/antor1686/Call-Test-Agent).
 
 ## What it does
 - **Auto-accept:** clicks `Accept`, `Connect` and `Run <tool>` buttons as they appear. It highlights them first, then clicks after 0.7 s. **Alt+Shift+A** turns auto-click on and off. **Enter** (or **Ctrl+Enter** while typing) clicks the highlighted button by hand.
