@@ -5,7 +5,7 @@
 // sets the status dropdown to `wantStatus` (default AgentInCall).
 
 if (!globalThis.KeyMapperItems) importScripts('item-identity.js');
-const { sameScenario, isAgentItem } = globalThis.KeyMapperItems;
+const { sameTask, isAgentItem } = globalThis.KeyMapperItems;
 
 const DEFAULTS = {
   topic: '',            // shared secret ntfy topic, same on both extensions
@@ -80,7 +80,7 @@ async function onTick(tabId, m, frameId = 0) {
       toast(tabId, `gave up switching to ${p.target} (stage: ${p.stage}). Will retry in 5 min.`, '#b42318');
       s.pending = null; s.cooldownUntil = now + COOLDOWN_MS;
     } else if (p.stage === 'item' && s.itemAuthority === 'editor' &&
-        isAgentItem(s.item) && sameScenario(s.item, p.target)) {
+        isAgentItem(s.item) && sameTask(s.item, p.target)) {
       p.stage = 'status'; p.at = now;
     }
     if (s.pending && s.pending.stage === 'item' && now - p.sentAt > 15000) { p.sentAt = now; toTab(tabId, { type: 'km-switch', target: p.target }); }
@@ -97,7 +97,7 @@ async function onTick(tabId, m, frameId = 0) {
     const s2 = await getState(tabId);
     s2.lastBusy = Math.max(s2.lastBusy, busyReceived.get(tabId) || 0);
     if (Date.now() - s2.lastBusy <= idleMs) return setState(tabId, s2);
-    if (target && !(s2.itemAuthority === 'editor' && isAgentItem(s2.item) && sameScenario(target, s2.item)) &&
+    if (target && !(s2.itemAuthority === 'editor' && isAgentItem(s2.item) && sameTask(target, s2.item)) &&
         (cfg.matchBy !== 'company' || company(target) !== company(s2.item))) {
       s2.pending = { target, stage: 'item', at: Date.now(), sentAt: Date.now() };
       await setState(tabId, s2);
@@ -111,7 +111,7 @@ async function onTick(tabId, m, frameId = 0) {
 async function onProgress(tabId, m) {
   const s = await getState(tabId);
   if (!s.pending) return;
-  if (m.stage === 'item-done' && m.selected === true && isAgentItem(m.item) && sameScenario(m.item, s.pending.target)) {
+  if (m.stage === 'item-done' && m.selected === true && isAgentItem(m.item) && sameTask(m.item, s.pending.target)) {
     s.item = m.item; s.itemAuthority = 'editor'; s.itemSeenAt = Date.now();
     s.pending.stage = 'status'; s.pending.at = Date.now(); s.pending.sentAt = 0;
   }

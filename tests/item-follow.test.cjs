@@ -60,16 +60,30 @@ function pageFixture(labels, changesSelection = true, settings = {}) {
 }
 
 test('customer task selects its unique agent counterpart and verifies actual editor selection', async () => {
-  const f = pageFixture(['demo__scenario_customer_pc01', 'demo__scenario_agent_tp01']);
+  const f = pageFixture(['demo__scenario_customer_pc01', 'demo__scenario_agent_pc01']);
   await f.switchTo('demo__scenario_customer_pc01');
-  assert.deepEqual(f.clicked, ['demo__scenario_agent_tp01']);
-  assert.equal(f.selected(), 'demo__scenario_agent_tp01');
+  assert.deepEqual(f.clicked, ['demo__scenario_agent_pc01']);
+  assert.equal(f.selected(), 'demo__scenario_agent_pc01');
   assert.equal(f.messages.at(-1).stage, 'item-done');
   assert.equal(f.messages.at(-1).selected, true);
 });
 
 test('multiple agent variants do not cause an arbitrary item click', async () => {
-  const f = pageFixture(['demo__scenario_agent_tp01', 'demo__scenario_agent_tp02']);
+  const f = pageFixture(['demo__scenario_agent_pc01', 'demo__scenario_agent_pc03']);
+  await f.switchTo('demo__scenario');
+  assert.deepEqual(f.clicked, []);
+  assert.equal(f.messages.at(-1).stage, 'item-fail');
+});
+
+test('an explicit caller variant selects only the exact agent ID from multiple options', async () => {
+  const f = pageFixture(['demo__scenario_agent_pc01', 'demo__scenario_agent_pc03', 'demo__scenario_agent_pc05']);
+  await f.switchTo('demo__scenario_customer_pc05');
+  assert.deepEqual(f.clicked, ['demo__scenario_agent_pc05']);
+  assert.equal(f.messages.at(-1).stage, 'item-done');
+});
+
+test('a missing caller variant never falls back to another available agent ID', async () => {
+  const f = pageFixture(['demo__scenario_agent_pc03']);
   await f.switchTo('demo__scenario_customer_pc01');
   assert.deepEqual(f.clicked, []);
   assert.equal(f.messages.at(-1).stage, 'item-fail');
@@ -83,21 +97,21 @@ test('legitimate no-role exact item is selectable', async () => {
 });
 
 test('clicking an option without a real selection change never acknowledges completion', async () => {
-  const f = pageFixture(['demo__scenario_agent_tp01'], false);
+  const f = pageFixture(['demo__scenario_agent_pc01'], false);
   await f.switchTo('demo__scenario_customer_pc01');
   assert.equal(f.messages.some(message => message.stage === 'item-done'), false);
   assert.equal(f.messages.at(-1).stage, 'item-fail');
 });
 
 test('a retry during an outstanding switch does not open competing menus', async () => {
-  const f = pageFixture(['demo__scenario_agent_tp01']);
+  const f = pageFixture(['demo__scenario_agent_pc01']);
   await Promise.all([f.switchTo('demo__scenario_customer_pc01'), f.switchTo('demo__scenario_customer_pc01')]);
   assert.equal(f.opens(), 1);
   assert.equal(f.clicked.length, 1);
 });
 
 test('call activity cancellation while options are pending prevents a later click', async () => {
-  const f = pageFixture(['demo__scenario_agent_tp01'], true, { delayedOptions: true, cancelOnPoll: true });
+  const f = pageFixture(['demo__scenario_agent_pc01'], true, { delayedOptions: true, cancelOnPoll: true });
   await f.switchTo('demo__scenario_customer_pc01');
   assert.equal(f.opens(), 1);
   assert.deepEqual(f.clicked, []);
@@ -105,7 +119,7 @@ test('call activity cancellation while options are pending prevents a later clic
 });
 
 test('a combobox search query is never reported as the selected editor item', async () => {
-  const f = pageFixture(['demo__scenario_agent_tp01'], true, {
+  const f = pageFixture(['demo__scenario_agent_pc01'], true, {
     delayedOptions: true, cancelOnPoll: true, searchInputOnly: true,
     onPoll: ctx => ctx.followFixture.tick()
   });
@@ -136,8 +150,8 @@ function backgroundFixture(item) {
 }
 
 test('already selected matching agent scenario does not loop back to the customer task', async () => {
-  const f = backgroundFixture('demo__scenario_agent_tp01');
-  await vm.runInContext("onTick(9, {busy:false,item:'demo__scenario_agent_tp01',itemAuthority:'editor'}, 4)", f.context);
+  const f = backgroundFixture('demo__scenario_agent_pc01');
+  await vm.runInContext("onTick(9, {busy:false,item:'demo__scenario_agent_pc01',itemAuthority:'editor'}, 4)", f.context);
   assert.equal(f.sent.some(message => message.type === 'km-switch'), false);
 });
 
@@ -151,6 +165,21 @@ test('weaker embedded header cannot overwrite fresh editor selection or falsely 
   assert.equal(f.state.tab9.pending.stage, 'item');
 });
 
+test('same scenario with the wrong task ID does not satisfy a pending switch or progress acknowledgment', async () => {
+  const f = backgroundFixture('demo__scenario_agent_pc03');
+  f.state.tab9.pending = { target: 'demo__scenario_customer_pc01', stage: 'item', at: Date.now(), sentAt: Date.now() };
+  await vm.runInContext("onTick(9, {busy:false,item:'demo__scenario_agent_pc03',itemAuthority:'editor'}, 4)", f.context);
+  assert.equal(f.state.tab9.pending.stage, 'item');
+  await vm.runInContext("onProgress(9, {stage:'item-done',item:'demo__scenario_agent_pc03',selected:true})", f.context);
+  assert.equal(f.state.tab9.pending.stage, 'item');
+});
+
+test('same scenario with the wrong task ID still requests the caller exact task', async () => {
+  const f = backgroundFixture('demo__scenario_agent_pc03');
+  await vm.runInContext("onTick(9, {busy:false,item:'demo__scenario_agent_pc03',itemAuthority:'editor'}, 4)", f.context);
+  assert.equal(f.sent.find(message => message.type === 'km-switch').target, 'demo__scenario_customer_pc01');
+});
+
 test('identity parser retains unrelated suffixes and rejects invalid task names', () => {
   const f = pageFixture([]), identity = f.ctx.KeyMapperItems;
   assert.equal(identity.parse('banking__scenario_agent_notes_extra').key, 'banking__scenario_agent_notes_extra');
@@ -159,4 +188,7 @@ test('identity parser retains unrelated suffixes and rejects invalid task names'
   assert.equal(identity.parse('demo__customer_pc01').key, 'demo__customer_pc01');
   assert.equal(identity.parse('not an item'), null);
   assert.equal(identity.sameScenario('banking__one_customer_pc01', 'banking__two_agent_tp01'), false);
+  assert.equal(identity.sameTask('demo__scenario_customer_PC05', 'demo__scenario_agent_pc05'), true);
+  assert.equal(identity.sameTask('demo__scenario_customer_pc01', 'demo__scenario_agent_pc03'), false);
+  assert.equal(identity.sameTask('demo__scenario_customer_pc01', 'demo__scenario'), false);
 });

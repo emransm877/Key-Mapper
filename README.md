@@ -30,7 +30,7 @@ Ship an update: change the code, **raise `version` in `manifest.json`**, and pus
 
 ## Follow-caller freshness and checks
 
-Version 2.0.2 matches the caller's customer task to the corresponding agent task for the same scenario, including different company prefixes. The known `_customer_pc01` and `_agent_tp01` style suffixes are role/task IDs, not part of the scenario identity. It chooses only one matching agent-side dropdown option; if multiple variants match, it does not guess. Switch completion requires the actual editor selection to change. Embedded call headings cannot overwrite a fresh selected editor item, and call activity cancels an item/status switch that is still waiting for a dropdown.
+Version 2.0.3 matches the caller's customer task to the agent task for the same scenario **and the same task ID**: for example, `_customer_pc05` matches `_agent_pc05`, not `_agent_pc01` or `_agent_pc03`. If that exact task is unavailable in your dropdown, it does not select another variant. Legacy items without role/task suffixes match only the exact no-role item, and ambiguous options are not guessed. The extension cannot grant access to or assign an unavailable task. Switch completion requires the actual editor selection to change. Embedded call headings cannot overwrite a fresh selected editor item, and call activity cancels an item/status switch that is still waiting for a dropdown.
 
 After updating or reloading the extension, refresh the work page to replace old content scripts. If the popup asks you to refresh the work page, its selected-item heartbeat has not reached the extension yet. The caller's existing 1.4.1 broadcast remains compatible; no new caller update is required for this role-matching fix.
 

@@ -11,7 +11,7 @@
   if (!isSA(location.href) && !anc.some(isSA)) return;
 
   const TAG = "[Key Mapper]";
-  const { parse: parseItem, sameScenario, isAgentItem, resolveAgentOption } = globalThis.KeyMapperItems;
+  const { parse: parseItem, sameTask, isAgentItem, resolveAgentOption } = globalThis.KeyMapperItems;
   const MSG = "key-mapper-enter-click";
   const TARGETS = [
     /^accept(\s+[\w .-]*)?$/i,   // "Accept", "Accept call", ...
@@ -389,7 +389,7 @@
       if (!safe()) return;
       const myItem = detectItem();
       const selected = editorSelection();
-      if (selected && isAgentItem(selected.item) && sameScenario(selected.item, target)) {
+      if (selected && isAgentItem(selected.item) && sameTask(selected.item, target)) {
         return send({ type: 'km-progress', stage: 'item-done', item: selected.item, selected: true });
       }
       const trig = findItemTrigger(taught, myItem);
